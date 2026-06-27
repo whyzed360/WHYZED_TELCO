@@ -4,7 +4,22 @@ let myPeerInstance = null;
 let activeMediaCall = null;
 let localAudioStream = null;
 
-// Initialize the Network Node when the page finishes loading
+// Socket.io initialization for Signaling (Point to your live Render URL)
+const socket = io("https://whyzed-telco.onrender.com", {
+    transports: ['websocket']
+});
+
+// STUN Servers to bypass mobile firewalls/NAT
+const PEER_CONFIG = {
+    config: {
+        'iceServers': [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+    }
+};
+
 window.addEventListener('DOMContentLoaded', () => {
     initializeNetworkNode();
 });
@@ -12,79 +27,84 @@ window.addEventListener('DOMContentLoaded', () => {
 function initializeNetworkNode() {
     const statusDisplay = document.getElementById('network-status');
     
-    // Create Peer connection bound directly to your custom number schema
-    myPeerInstance = new Peer(MY_SERIAL_NUMBER);
+    // Initialize PeerJS with STUN configuration
+    myPeerInstance = new Peer(MY_SERIAL_NUMBER, PEER_CONFIG);
 
     myPeerInstance.on('open', (id) => {
         statusDisplay.innerText = "SECURE PROTOCOL ACTIVE";
         statusDisplay.className = "status online";
         console.log(`Node online. Identity verified as: ${id}`);
+        // Notify signaling server
+        socket.emit("register", id);
     });
 
     myPeerInstance.on('error', (err) => {
-        statusDisplay.innerText = "CONNECTION FAILURE";
-        statusDisplay.className = "status error";
-        document.getElementById('call-state').innerText = `Error context: ${err.type}`;
         console.error('PeerJS Protocol Error:', err);
+        document.getElementById('call-state').innerText = `Error context: ${err.type}`;
+        if (err.type === 'unavailable-id') {
+            alert("This ID is already taken or unavailable.");
+        }
     });
 
-    // Automatically listen for incoming secure audio requests
     myPeerInstance.on('call', (incomingCall) => {
-        console.log("Receiving incoming connection handshake...");
-        
-        // Request micro-permissions from browser locally to answer
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-            .then((stream) => {
-                localAudioStream = stream;
-                activeMediaCall = incomingCall;
-                
-                // Answer the connection instantly and push local audio stream back
-                incomingCall.answer(stream);
-                toggleInterfaceElements(true);
-                
-                incomingCall.on('stream', (remoteStream) => {
-                    const audioTracks = document.getElementById('remote-audio');
-                    audioTracks.srcObject = remoteStream;
-                    document.getElementById('call-state').innerText = "Call Connected (Encrypted P2P)";
-                });
-            })
-            .catch((err) => {
-                console.error("Hardware initialization blocked:", err);
-                document.getElementById('call-state').innerText = "Failed to access local microphone.";
-            });
+        handleIncomingCall(incomingCall);
     });
+}
+
+function handleIncomingCall(incomingCall) {
+    document.getElementById('call-state').innerText = "Incoming Secure Call...";
+    
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then((stream) => {
+            localAudioStream = stream;
+            activeMediaCall = incomingCall;
+            incomingCall.answer(stream);
+            toggleInterfaceElements(true);
+            
+            incomingCall.on('stream', (remoteStream) => {
+                const audioPlayer = document.getElementById('remote-audio');
+                audioPlayer.srcObject = remoteStream;
+                document.getElementById('call-state').innerText = "Call Connected (Encrypted P2P)";
+            });
+        })
+        .catch((err) => {
+            console.error("Hardware initialization blocked:", err);
+            document.getElementById('call-state').innerText = "Mic access denied.";
+        });
 }
 
 function initiateVoiceCall() {
     const targetAddress = document.getElementById('destination-number').value.trim();
+    
+    if (targetAddress === MY_SERIAL_NUMBER) {
+        alert("Cannot call yourself on the WHYZED network.");
+        return;
+    }
     if (!targetAddress) {
-        alert("Please output a valid 060 destination address.");
+        alert("Please enter a valid destination address.");
         return;
     }
 
-    document.getElementById('call-state').innerText = `Dialing secure line: ${targetAddress}...`;
+    document.getElementById('call-state').innerText = `Dialing: ${targetAddress}...`;
 
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         .then((stream) => {
             localAudioStream = stream;
             toggleInterfaceElements(true);
             
-            // Execute the secure P2P handshake directly to the destination number
             activeMediaCall = myPeerInstance.call(targetAddress, stream);
             
             activeMediaCall.on('stream', (remoteStream) => {
-                const audioTracks = document.getElementById('remote-audio');
-                audioTracks.srcObject = remoteStream;
+                const audioPlayer = document.getElementById('remote-audio');
+                audioPlayer.srcObject = remoteStream;
                 document.getElementById('call-state').innerText = "Call Connected (Encrypted P2P)";
             });
 
-            activeMediaCall.on('close', () => {
-                resetCallUI();
-            });
+            activeMediaCall.on('close', () => resetCallUI());
         })
         .catch((err) => {
             console.error("Hardware initiation failed:", err);
-            document.getElementById('call-state').innerText = "Call Aborted. Check device mic access permissions.";
+            document.getElementById('call-state').innerText = "Call Failed: Check Permissions.";
         });
 }
 
