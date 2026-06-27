@@ -2,27 +2,37 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const fs = require('fs'); // Added file system module
 
 const app = express();
 app.use(cors());
-
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
-});
+const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-let nextId = 1;
+const ID_FILE = './next_id.txt';
+
+// Helper to get ID
+function getNextId() {
+    if (!fs.existsSync(ID_FILE)) return 1;
+    return parseInt(fs.readFileSync(ID_FILE, 'utf8'));
+}
+
+// Helper to save ID
+function saveNextId(id) {
+    fs.writeFileSync(ID_FILE, id.toString());
+}
 
 io.on('connection', (socket) => {
   socket.on('request-id', () => {
-    const paddedId = String(nextId).padStart(6, '0');
+    let currentId = getNextId();
+    const paddedId = String(currentId).padStart(6, '0');
     const fullNumber = `060${paddedId}`;
+    
     socket.emit('assigned-id', fullNumber);
-    nextId++;
-  });
-
-  socket.on('start_call', (data) => {
-    socket.broadcast.emit('incoming_call', { from: data.from });
+    
+    // Increment and save to file
+    saveNextId(currentId + 1);
+    console.log(`Assigned ID ${fullNumber} and saved state.`);
   });
 });
 
