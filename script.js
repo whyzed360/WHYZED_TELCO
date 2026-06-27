@@ -1,15 +1,13 @@
 // WHYZED Network Configuration
-const MY_SERIAL_NUMBER = '060-000-001'; 
+let mySerialNumber = ""; 
 let myPeerInstance = null;
 let activeMediaCall = null;
 let localAudioStream = null;
 
-// Socket.io initialization for Signaling (Point to your live Render URL)
 const socket = io("https://whyzed-telco.onrender.com", {
     transports: ['websocket']
 });
 
-// STUN Servers to bypass mobile firewalls/NAT
 const PEER_CONFIG = {
     config: {
         'iceServers': [
@@ -21,29 +19,57 @@ const PEER_CONFIG = {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-    initializeNetworkNode();
+    checkIdentity();
 });
 
-function initializeNetworkNode() {
-    const statusDisplay = document.getElementById('network-status');
+function checkIdentity() {
+    const savedId = localStorage.getItem('whyzed_user_id');
+
+    if (savedId) {
+        // Option 1: Existing user on this device
+        if (confirm(`Welcome back! Your number is ${savedId}. Use this number?`)) {
+            assignNumber(savedId);
+        } else {
+            promptNewIdentity();
+        }
+    } else {
+        // Option 2: New device - ask to recover or create
+        promptNewIdentity();
+    }
+}
+
+function promptNewIdentity() {
+    const action = prompt("Enter 'new' for a new number, or paste your existing 060XXXXXX number to recover it:");
     
-    // Initialize PeerJS with STUN configuration
-    myPeerInstance = new Peer(MY_SERIAL_NUMBER, PEER_CONFIG);
+    if (action && action.toLowerCase() === 'new') {
+        socket.emit('request-id');
+    } else if (action && action.startsWith('060')) {
+        assignNumber(action);
+    } else {
+        alert("Invalid input. Generating new number...");
+        socket.emit('request-id');
+    }
+}
+
+function assignNumber(id) {
+    mySerialNumber = id;
+    localStorage.setItem('whyzed_user_id', id);
+    document.getElementById('my-id-display').innerText = mySerialNumber;
+    initializeNetworkNode(id);
+}
+
+socket.on('assigned-id', (id) => {
+    assignNumber(id);
+});
+
+function initializeNetworkNode(id) {
+    const statusDisplay = document.getElementById('network-status');
+    myPeerInstance = new Peer(id, PEER_CONFIG);
 
     myPeerInstance.on('open', (id) => {
         statusDisplay.innerText = "SECURE PROTOCOL ACTIVE";
         statusDisplay.className = "status online";
-        console.log(`Node online. Identity verified as: ${id}`);
-        // Notify signaling server
-        socket.emit("register", id);
-    });
-
-    myPeerInstance.on('error', (err) => {
-        console.error('PeerJS Protocol Error:', err);
-        document.getElementById('call-state').innerText = `Error context: ${err.type}`;
-        if (err.type === 'unavailable-id') {
-            alert("This ID is already taken or unavailable.");
-        }
+        console.log(`Node online. Identity: ${id}`);
     });
 
     myPeerInstance.on('call', (incomingCall) => {
@@ -53,14 +79,12 @@ function initializeNetworkNode() {
 
 function handleIncomingCall(incomingCall) {
     document.getElementById('call-state').innerText = "Incoming Secure Call...";
-    
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         .then((stream) => {
             localAudioStream = stream;
             activeMediaCall = incomingCall;
             incomingCall.answer(stream);
             toggleInterfaceElements(true);
-            
             incomingCall.on('stream', (remoteStream) => {
                 const audioPlayer = document.getElementById('remote-audio');
                 audioPlayer.srcObject = remoteStream;
@@ -68,57 +92,42 @@ function handleIncomingCall(incomingCall) {
             });
         })
         .catch((err) => {
-            console.error("Hardware initialization blocked:", err);
             document.getElementById('call-state').innerText = "Mic access denied.";
         });
 }
 
 function initiateVoiceCall() {
     const targetAddress = document.getElementById('destination-number').value.trim();
-    
-    if (targetAddress === MY_SERIAL_NUMBER) {
-        alert("Cannot call yourself on the WHYZED network.");
+    if (targetAddress === mySerialNumber) {
+        alert("Cannot call yourself.");
         return;
     }
-    if (!targetAddress) {
-        alert("Please enter a valid destination address.");
-        return;
-    }
-
     document.getElementById('call-state').innerText = `Dialing: ${targetAddress}...`;
 
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         .then((stream) => {
             localAudioStream = stream;
             toggleInterfaceElements(true);
-            
             activeMediaCall = myPeerInstance.call(targetAddress, stream);
-            
             activeMediaCall.on('stream', (remoteStream) => {
                 const audioPlayer = document.getElementById('remote-audio');
                 audioPlayer.srcObject = remoteStream;
                 document.getElementById('call-state').innerText = "Call Connected (Encrypted P2P)";
             });
-
             activeMediaCall.on('close', () => resetCallUI());
         })
-        .catch((err) => {
-            console.error("Hardware initiation failed:", err);
+        .catch(() => {
             document.getElementById('call-state').innerText = "Call Failed: Check Permissions.";
         });
 }
 
 function endVoiceCall() {
-    if (activeMediaCall) {
-        activeMediaCall.close();
-    }
+    if (activeMediaCall) activeMediaCall.close();
     resetCallUI();
 }
 
 function resetCallUI() {
-    if (localAudioStream) {
-        localAudioStream.getTracks().forEach(track => track.stop());
-    }
+    if (localAudioStream) localAudioStream.getTracks().forEach(track => track.stop());
     toggleInterfaceElements(false);
     document.getElementById('call-state').innerText = "Secure Line Disconnected";
 }
@@ -126,11 +135,6 @@ function resetCallUI() {
 function toggleInterfaceElements(isCalling) {
     const callBtn = document.getElementById('btn-call');
     const hangupBtn = document.getElementById('btn-hangup');
-    if (isCalling) {
-        callBtn.classList.add('hidden');
-        hangupBtn.classList.remove('hidden');
-    } else {
-        callBtn.classList.remove('hidden');
-        hangupBtn.classList.add('hidden');
-    }
+    isCalling ? callBtn.classList.add('hidden') : callBtn.classList.remove('hidden');
+    isCalling ? hangupBtn.classList.remove('hidden') : hangupBtn.classList.add('hidden');
 }

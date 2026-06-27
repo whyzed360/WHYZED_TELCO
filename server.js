@@ -14,9 +14,26 @@ const io = new Server(server, {
   }
 });
 
+// Counter to track sequential IDs
+// Note: This resets if the Render service restarts.
+let nextId = 1;
+
 io.on('connection', (socket) => {
   console.log('Secure channel established: ' + socket.id);
 
+  // Handle request for sequential ID
+  socket.on('request-id', () => {
+    // Pads number to 6 digits (e.g., 1 becomes 000001)
+    const paddedId = String(nextId).padStart(6, '0');
+    const fullNumber = `060${paddedId}`;
+    
+    socket.emit('assigned-id', fullNumber);
+    console.log(`Assigned ID ${fullNumber} to user`);
+    
+    nextId++;
+  });
+
+  // Signaling: Relay call initiation
   socket.on('start_call', (data) => {
     console.log('Call initiated from: ' + data.from);
     socket.broadcast.emit('incoming_call', { from: data.from });
