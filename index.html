@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WHYZED Digital Network</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="phone-container">
+        <header>
+            <h2>WHYZED VNP</h2>
+            <div class="status-bar">
+                <span id="network-status" class="status offline">Initializing Secure Line...</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="identity-box">
+                <label>Your Secure Number:</label>
+                <div id="my-assigned-number" class="number-display">060-000-001</div>
+            </div>
+
+            <div class="dialer-screen">
+                <input type="text" id="destination-number" placeholder="060-xxx-xxx" maxlength="11">
+            </div>
+
+            <div class="action-buttons">
+                <button id="btn-call" class="btn call-btn" onclick="initiateVoiceCall()">📞 START CALL</button>
+                <button id="btn-hangup" class="btn hangup-btn hidden" onclick="endVoiceCall()">❌ HANG UP</button>
+            </div>
+            
+            <div class="call-info">
+                <p id="call-state">System Idle</p>
+            </div>
+        </main>
+        
+        <!-- Hidden elements to handle P2P Audio Streams -->
+        <audio id="remote-audio" autoplay></audio>
+    </div>
+
+    <!-- Importing the Core PeerJS P2P Abstraction Framework -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
