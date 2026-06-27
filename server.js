@@ -2,39 +2,40 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const fs = require('fs'); // Added file system module
 
 const app = express();
 app.use(cors());
+
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+const io = new Server(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
 
-const ID_FILE = './next_id.txt';
-
-// Helper to get ID
-function getNextId() {
-    if (!fs.existsSync(ID_FILE)) return 1;
-    return parseInt(fs.readFileSync(ID_FILE, 'utf8'));
-}
-
-// Helper to save ID
-function saveNextId(id) {
-    fs.writeFileSync(ID_FILE, id.toString());
-}
+let nextId = 1;
 
 io.on('connection', (socket) => {
+  console.log('User connected: ' + socket.id);
+
   socket.on('request-id', () => {
-    let currentId = getNextId();
-    const paddedId = String(currentId).padStart(6, '0');
+    const paddedId = String(nextId).padStart(6, '0');
     const fullNumber = `060${paddedId}`;
     
     socket.emit('assigned-id', fullNumber);
+    console.log(`Assigned ID: ${fullNumber} (Next counter is now ${nextId + 1})`);
     
-    // Increment and save to file
-    saveNextId(currentId + 1);
-    console.log(`Assigned ID ${fullNumber} and saved state.`);
+    nextId++;
+  });
+
+  socket.on('start_call', (data) => {
+    socket.broadcast.emit('incoming_call', { from: data.from });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected');
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('WHYZED Backend active on ' + PORT));
+server.listen(PORT, () => {
+  console.log('WHYZED VNP Backend active on port ' + PORT);
+});
